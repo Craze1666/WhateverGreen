@@ -2021,6 +2021,36 @@ igfx: @ (DBG) BLS: [COMM] Processing the request: Current = 0x00014ead; Target =
 
 </details>
 
+## 修复在 Kaby Lake/Coffee Lake 平台上运行 macOS 13.4 或以上版本的笔记本开机持续3分钟暗屏问题
+
+如果你之前使用“亮度寄存器修复”（也就是 `-igfxblr` 这个启动参数）来解决笔记本开机持续3分钟左右暗屏的问题，在升级到 macOS 13.4 或之后的版本后你会发现该补丁失效了。这是因为苹果简化了显卡驱动中读写寄存器相关的函数，导致编译器优化了函数调用的汇编代码，进而导致“亮度寄存器修复”以及“亮度丝滑器”注册的钩子失效。从 v1.6.5 开始，*WEG* 提供了新的补丁来撤销编译器对亮度调节相关函数的优化以及为 Coffee Lake 平台的笔记本重写了调节亮度的函数，从而解决开机持续3分钟暗屏以及“亮度丝滑器”失效的问题。从 v1.6.6 开始，*WEG* 支持 Kaby Lake 平台。
+
+请注意这个新补丁仅适用于使用 macOS 13.4 以及以上的 Kaby Lake 或者 Coffee Lake 核显驱动的笔记本用户。你可以为核显添加 `enable-backlight-registers-alternative-fix` 属性或者直接使用 `-igfxblt` 启动参数来启用这个新的补丁。与此同时，你可以删除原“亮度寄存器修复”的 `enable-backlight-registers-fix` 设备属性或者 `-igfxblr` 启动参数。如果你想在 macOS 13.4 或以上系统中使用“亮度丝滑器”，你需要添加 `-igfxblt` 以及 `-igfxbls` 这两个启动参数。
+
+请注意 Ice Lake 平台的笔记本用户不受此问题影响。
+
+## 修复 Ice Lake 平台上笔记本开机持续花屏7到15秒的问题
+
+为核显添加 `enable-dbuf-early-optimizer` 属性或者直接使用 `-igfxdbeo` 启动参数以修复 Ice Lake 笔记本开机后内屏短暂花屏的问题。
+若发现内核日志记录了如下 DBUF 以及 Pipe Underrun 相关的错误信息，请启用此补丁来修复这些错误。
+
+此补丁通过提前调用优化显示缓冲区分配的函数来修复 DBUF 相关错误。
+用户可通过 `dbuf-optimizer-delay` 设备属性来指定具体的延迟时间（单位为秒，值类型为`Data`）。
+若用户未指定此属性，*WEG* 将使用如下所述的默认值。
+
+社区用户反馈 1 到 3 秒的延迟可在不影响外接显示器的情况下修复 DBUF 相关错误，而 *WEG* v1.5.4 所用的默认 0 秒延迟可能会导致部分笔记本外接显示器时内屏外屏同时花屏的问题。
+从 v1.5.5 开始，默认的延迟时间改为 1 秒，这样用户在通常情况下无需手动添加设备属性来修改延迟时间。
+
+<details>
+<summary>包含 DBUF 以及 Pipe Underrun 错误信息的内核日志</summary>
+
+```
+[IGFB][ERROR][DISPLAY   ] Display Pipe Underrun occurred on pipe(s) A
+[IGFB][ERROR][DISPLAY   ] Internal cached DBuf values are not set. Failed to distribute DBufs
+```
+
+</details>
+
 ## 已知问题
 *兼容性*：
 - 受限制的显卡：HD2000 和 HD2500，它们只能用于 IQSV (因为在白苹果中它们只用来干这个)，无解。

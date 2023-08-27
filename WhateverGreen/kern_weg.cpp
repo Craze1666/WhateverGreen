@@ -24,11 +24,13 @@ struct FramebufferViewer : public IOFramebuffer {
 static const char *pathIOGraphics[] { "/System/Library/Extensions/IOGraphicsFamily.kext/IOGraphicsFamily" };
 static const char *pathAGDPolicy[]  { "/System/Library/Extensions/AppleGraphicsControl.kext/Contents/PlugIns/AppleGraphicsDevicePolicy.kext/Contents/MacOS/AppleGraphicsDevicePolicy" };
 static const char *pathBacklight[]  { "/System/Library/Extensions/AppleBacklight.kext/Contents/MacOS/AppleBacklight" };
+static const char *pathMCCSControl[]  { "/System/Library/Extensions/AppleMCCSControl.kext/Contents/MacOS/AppleMCCSControl" };
 
 static KernelPatcher::KextInfo kextIOGraphics { "com.apple.iokit.IOGraphicsFamily", pathIOGraphics, arrsize(pathIOGraphics), {true}, {}, KernelPatcher::KextInfo::Unloaded };
 static KernelPatcher::KextInfo kextAGDPolicy  { "com.apple.driver.AppleGraphicsDevicePolicy", pathAGDPolicy, arrsize(pathAGDPolicy), {true}, {}, KernelPatcher::KextInfo::Unloaded };
 // Note: initially marked as reloadable, but I doubt it needs to be.
 static KernelPatcher::KextInfo kextBacklight { "com.apple.driver.AppleBacklight", pathBacklight, arrsize(pathBacklight), {true}, {}, KernelPatcher::KextInfo::Unloaded };
+static KernelPatcher::KextInfo kextMCCSControl { "com.apple.driver.AppleMCCSControl", pathMCCSControl, arrsize(pathMCCSControl), {true}, {}, KernelPatcher::KextInfo::Unloaded };
 
 WEG::ApplePanelData WEG::appleBacklightData[] {
 	{
@@ -132,12 +134,16 @@ void WEG::init() {
 
 	// Disable backlight patches if asked specifically.
 	PE_parse_boot_argn("applbkl", &appleBacklightPatch, sizeof(appleBacklightPatch));
-	if (appleBacklightPatch != APPLBKL_OFF)
+	if (appleBacklightPatch != APPLBKL_OFF) {
 		lilu.onKextLoad(&kextBacklight);
+	}
+	if (appleBacklightPatch == APPLBKL_NAVI10) {
+		lilu.onKextLoadForce(&kextMCCSControl);
+	}
 
 	igfx.init();
 	ngfx.init();
-	rad.init();
+	rad.init(appleBacklightPatch == APPLBKL_NAVI10);
 
 	if (getKernelVersion() >= KernelVersion::BigSur) {
 		unfair.init();
@@ -333,6 +339,10 @@ void WEG::processKernel(KernelPatcher &patcher) {
 	}
 }
 
+size_t WEG::wrapFunctionReturnZero() {
+	return 0;
+}
+
 void WEG::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t address, size_t size) {
 	if (kextIOGraphics.loadIndex == index) {
 		gIOFBVerboseBootPtr = patcher.solveSymbol<uint8_t *>(index, "__ZL16gIOFBVerboseBoot", address, size);
@@ -343,7 +353,15 @@ void WEG::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t ad
 			SYSLOG("weg", "failed to resolve gIOFBVerboseBoot");
 			patcher.clearError();
 		}
+		return;
+	}
 
+	if (kextMCCSControl.loadIndex == index) {
+		KernelPatcher::RouteRequest request[] = {
+			{"__ZN25AppleMCCSControlGibraltar5probeEP9IOServicePi", wrapFunctionReturnZero},
+			{"__ZN21AppleMCCSControlCello5probeEP9IOServicePi", wrapFunctionReturnZero},
+		};
+		patcher.routeMultiple(index, request, address, size);
 		return;
 	}
 
